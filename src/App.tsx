@@ -1,164 +1,309 @@
-import { useState, useEffect } from 'react';
-import { Mail, Trash2, CheckCircle, Users, MessageSquare, XCircle, ExternalLink, Calculator, RotateCcw, Clock } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { 
+  Users, Search, Download, Trash2, Filter, 
+  CheckCircle2, MessageSquare, AlertCircle, 
+  ChevronRight, Calculator, XCircle
+} from 'lucide-react';
 
-const COURSES = ["SO", "OM", "AIBL", "CF", "PM", "OB", "SP", "FA", "ME", "TIL", "SFBL", "PMD", "QM"];
+interface Lead {
+  email: string;
+  name: string;
+  company: string;
+  job_title: string;
+  program: string;
+  status: string;
+  pasted_at: string;
+}
 
-export default function App() {
-  const [leads, setLeads] = useState<any[]>([]);
-  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
-  const [activeFilter, setActiveFilter] = useState('All');
+const App = () => {
+  const [leads, setLeads] = useState<Lead[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [showOnlyNew, setShowOnlyNew] = useState(false);
+  const [selectedProgram, setSelectedProgram] = useState('All');
+  const [showNewOnly, setShowNewOnly] = useState(false);
+  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
+  const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
-  const [pasteData, setPasteData] = useState('');
 
+  const programs = ['All', 'SO', 'OM', 'AIBL', 'CF', 'PM', 'OB', 'SP', 'FA', 'ME', 'TIL', 'SFBL', 'PMD', 'QM'];
+
+  // 1. Fetch from Vercel/Neon Cloud
   const fetchLeads = async () => {
-    const res = await fetch('http://localhost:3001/api/leads');
-    const data = await res.json();
-    setLeads(data);
+    try {
+      const res = await fetch('/api/leads');
+      const data = await res.json();
+      setLeads(data || []);
+    } catch (err) {
+      console.error("Fetch error:", err);
+    }
   };
 
-  useEffect(() => { fetchLeads(); }, []);
+  useEffect(() => {
+    fetchLeads();
+  }, []);
 
-  const filteredLeads = leads.filter(l => {
-    const matchesCourse = activeFilter === 'All' ? true : l.program.includes(activeFilter);
-    const searchLower = searchTerm.toLowerCase();
-    const matchesSearch = l.name.toLowerCase().includes(searchLower) || l.email.toLowerCase().includes(searchLower) || l.company.toLowerCase().includes(searchLower);
-    const matchesNewOnly = showOnlyNew ? l.status === 'New' : true;
-    return matchesCourse && matchesSearch && matchesNewOnly;
-  });
-
-  const lastUpdate = leads.length > 0 ? leads[0].pasted_at : 'No data recorded';
-
-  const stats = {
-    total: filteredLeads.length,
-    contacted: filteredLeads.filter(l => l.status === 'Contacted').length,
-    replied: filteredLeads.filter(l => l.status === 'Replied').length,
-    uncontactable: filteredLeads.filter(l => l.status === 'Uncontactable').length
+  // 2. Import Logic (Smart Merge)
+  const handleImport = async () => {
+    try {
+      const jsonData = JSON.parse(importText);
+      await fetch('/api/leads', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(jsonData),
+      });
+      setImportText('');
+      setIsImporting(false);
+      fetchLeads();
+    } catch (err) {
+      alert("Invalid JSON format. Please check your Excel Office Script output.");
+    }
   };
 
+  // 3. Status Cycle (New -> Uncontactable -> Contacted -> Replied)
   const toggleStatus = async (email: string, currentStatus: string) => {
-    const cycle: Record<string, string> = { 'New': 'Uncontactable', 'Uncontactable': 'Contacted', 'Contacted': 'Replied', 'Replied': 'New' };
-    await fetch(`http://localhost:3001/api/leads/${email}/status`, {
+    const cycle: Record<string, string> = { 
+      'New': 'Uncontactable', 
+      'Uncontactable': 'Contacted', 
+      'Contacted': 'Replied', 
+      'Replied': 'New' 
+    };
+    const nextStatus = cycle[currentStatus] || 'New';
+
+    await fetch('/api/status', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status: cycle[currentStatus] || 'New' }),
+      body: JSON.stringify({ email, status: nextStatus }),
     });
     fetchLeads();
   };
 
-  const countSelected = () => {
-    const selectedData = leads.filter(l => selectedEmails.includes(l.email));
-    const courseBreakdown: Record<string, number> = {};
-    selectedData.forEach(lead => {
-      lead.program.split(', ').forEach((p: string) => courseBreakdown[p] = (courseBreakdown[p] || 0) + 1);
-    });
-    const breakdownString = Object.entries(courseBreakdown).map(([c, count]) => `${c}: ${count}`).join('\n');
-    alert(`Selection Summary:\n-------------------\nTotal Unique Leads: ${selectedData.length}\n\nBreakdown:\n${breakdownString}`);
-  };
-
+  // 4. Delete Logic
   const deleteSelected = async () => {
     if (!window.confirm(`Delete ${selectedEmails.length} leads?`)) return;
-    await fetch('http://localhost:3001/api/leads/delete-multiple', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ emails: selectedEmails }) });
-    setSelectedEmails([]); fetchLeads();
+    await fetch('/api/leads', {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails: selectedEmails }),
+    });
+    setSelectedEmails([]);
+    fetchLeads();
   };
 
+  const toggleSelect = (email: string) => {
+    setSelectedEmails(prev => 
+      prev.includes(email) ? prev.filter(e => e !== email) : [...prev, email]
+    );
+  };
+
+  // 5. Deep-Scan Logic for the Department
+  const getSelectedStats = () => {
+    const selectedLeads = leads.filter(l => selectedEmails.includes(l.email));
+    const counts: Record<string, number> = {};
+    selectedLeads.forEach(l => {
+      l.program.split(', ').forEach(p => {
+        counts[p] = (counts[p] || 0) + 1;
+      });
+    });
+    return Object.entries(counts).sort((a, b) => b[1] - a[1]);
+  };
+
+  // 6. Filtering Logic
+  const filteredLeads = leads.filter(lead => {
+    const matchesSearch = 
+      lead.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+      lead.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      lead.company.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesProgram = selectedProgram === 'All' || lead.program.includes(selectedProgram);
+    const matchesNew = !showNewOnly || lead.status === 'New';
+    return matchesSearch && matchesProgram && matchesNew;
+  });
+
   return (
-    <div style={{ padding: '30px', backgroundColor: '#f3f4f6', minHeight: '100vh', fontFamily: 'Inter, sans-serif' }}>
-      <header style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '25px' }}>
+    <div className="min-h-screen bg-slate-50 p-8 font-sans">
+      {/* Header */}
+      <div className="max-w-7xl mx-auto mb-8 flex justify-between items-end">
         <div>
-          <h1 style={{ fontSize: '28px', fontWeight: '800', margin: 0, color: '#111827' }}>ACE LeadFlow</h1>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#6b7280', fontSize: '13px', marginTop: '5px' }}>
-            <Clock size={14} /> <span>Last Import (MYT): <strong>{lastUpdate}</strong></span>
-          </div>
+          <h1 className="text-3xl font-bold text-slate-900 flex items-center gap-3">
+            <Users className="text-blue-600" size={32} />
+            ACE LeadFlow
+          </h1>
+          <p className="text-slate-500 mt-1">Departmental Lead Management Dashboard</p>
         </div>
-        <button onClick={() => setIsImporting(!isImporting)} style={{ backgroundColor: '#000', color: '#fff', padding: '12px 24px', borderRadius: '10px', border: 'none', cursor: 'pointer', fontWeight: '600' }}>
-          {isImporting ? 'Close' : 'Import Excel Data'}
-        </button>
-      </header>
-
-      {/* KPI Section */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '20px', marginBottom: '30px' }}>
-        {[
-          { label: 'Visible Leads', val: stats.total, icon: <Users size={20}/>, color: '#2563eb' },
-          { label: 'Uncontactable', val: stats.uncontactable, icon: <XCircle size={20}/>, color: '#ef4444' },
-          { label: 'Contacted', val: stats.contacted, icon: <CheckCircle size={20}/>, color: '#16a34a' },
-          { label: 'Replied', val: stats.replied, icon: <MessageSquare size={20}/>, color: '#9333ea' }
-        ].map(kpi => (
-          <div key={kpi.label} style={{ background: '#fff', padding: '20px', borderRadius: '15px', boxShadow: '0 2px 4px rgba(0,0,0,0.05)' }}>
-            <div style={{ color: kpi.color, marginBottom: '10px' }}>{kpi.icon}</div>
-            <div style={{ fontSize: '24px', fontWeight: 'bold' }}>{kpi.val}</div>
-            <div style={{ fontSize: '12px', color: '#6b7280', textTransform: 'uppercase' }}>{kpi.label}</div>
-          </div>
-        ))}
+        
+        <div className="flex gap-3">
+          <button 
+            onClick={() => setIsImporting(!isImporting)}
+            className="bg-blue-600 text-white px-4 py-2 rounded-lg flex items-center gap-2 hover:bg-blue-700 transition"
+          >
+            <Download size={18} /> Import Excel Data
+          </button>
+          {selectedEmails.length > 0 && (
+            <button 
+              onClick={deleteSelected}
+              className="bg-red-50 text-red-600 px-4 py-2 rounded-lg flex items-center gap-2 border border-red-200 hover:bg-red-100 transition"
+            >
+              <Trash2 size={18} /> Delete ({selectedEmails.length})
+            </button>
+          )}
+        </div>
       </div>
 
+      {/* Import Modal */}
       {isImporting && (
-        <div style={{ background: '#fff', padding: '25px', borderRadius: '15px', marginBottom: '25px', border: '2px dashed #e5e7eb' }}>
-          <textarea value={pasteData} onChange={e => setPasteData(e.target.value)} placeholder="Paste JSON block here..." style={{ width: '100%', height: '100px', padding: '15px', borderRadius: '10px', border: '1px solid #ddd' }} />
-          <button onClick={async () => { await fetch('http://localhost:3001/api/leads/bulk', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: pasteData }); setPasteData(''); setIsImporting(false); fetchLeads(); }} style={{ marginTop: '15px', width: '100%', padding: '14px', backgroundColor: '#2563eb', color: '#fff', borderRadius: '10px', border: 'none', fontWeight: 'bold' }}>Process Import</button>
+        <div className="max-w-7xl mx-auto mb-8 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <textarea
+            placeholder="Paste JSON from Excel Office Script here..."
+            className="w-full h-32 p-4 border border-slate-200 rounded-lg font-mono text-sm focus:ring-2 focus:ring-blue-500 outline-none"
+            value={importText}
+            onChange={(e) => setImportText(e.target.value)}
+          />
+          <div className="flex justify-end mt-3 gap-2">
+            <button onClick={() => setIsImporting(false)} className="px-4 py-2 text-slate-500 hover:bg-slate-50 rounded-lg">Cancel</button>
+            <button onClick={handleImport} className="px-6 py-2 bg-slate-900 text-white rounded-lg hover:bg-slate-800">Process Import</button>
+          </div>
         </div>
       )}
 
-      {/* Filter controls */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', gap: '20px' }}>
-        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', flex: 1 }}>
-          <button onClick={() => setActiveFilter('All')} style={{ padding: '8px 16px', borderRadius: '20px', border: 'none', backgroundColor: activeFilter === 'All' ? '#000' : '#fff', color: activeFilter === 'All' ? '#fff' : '#000', cursor: 'pointer', fontWeight: '600' }}>All</button>
-          {COURSES.map(c => <button key={c} onClick={() => setActiveFilter(c)} style={{ padding: '8px 16px', borderRadius: '20px', border: 'none', backgroundColor: activeFilter === c ? '#2563eb' : '#fff', color: activeFilter === c ? '#fff' : '#000', cursor: 'pointer', fontWeight: '600' }}>{c}</button>)}
+      {/* KPI Cards & Deep Scan */}
+      <div className="max-w-7xl mx-auto grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+          <p className="text-sm font-medium text-slate-500">Total Leads</p>
+          <p className="text-3xl font-bold text-slate-900">{leads.length}</p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '15px' }}>
-            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', fontWeight: '600', cursor: 'pointer', backgroundColor: '#fff', padding: '8px 15px', borderRadius: '20px', border: showOnlyNew ? '1px solid #2563eb' : '1px solid #ddd' }}>
-                <input type="checkbox" checked={showOnlyNew} onChange={e => setShowOnlyNew(e.target.checked)} />
-                <span style={{ color: showOnlyNew ? '#2563eb' : '#111827' }}>New Only</span>
-            </label>
-            <input placeholder="Search..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} style={{ padding: '10px 20px', borderRadius: '25px', border: '1px solid #ddd', width: '200px' }} />
+        <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm col-span-1 lg:col-span-3">
+          <div className="flex items-center gap-2 mb-3 text-slate-500 font-medium">
+            <Calculator size={18} /> Selection Deep-Scan
+          </div>
+          <div className="flex flex-wrap gap-3">
+            {selectedEmails.length === 0 ? (
+              <p className="text-slate-400 text-sm italic">Select leads to see course breakdown</p>
+            ) : (
+              getSelectedStats().map(([prog, count]) => (
+                <div key={prog} className="px-3 py-1 bg-blue-50 text-blue-700 rounded-full text-sm font-semibold border border-blue-100">
+                  {prog}: {count}
+                </div>
+              ))
+            )}
+          </div>
         </div>
       </div>
 
-      {/* Selection Action Bar */}
-      {selectedEmails.length > 0 && (
-        <div style={{ marginBottom: '15px', display: 'flex', gap: '10px', background: '#fee2e2', padding: '10px 20px', borderRadius: '12px' }}>
-          <button onClick={() => setSelectedEmails([])} style={{ backgroundColor: '#fff', color: '#374151', border: '1px solid #d1d5db', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <RotateCcw size={14}/> Deselect All
-          </button>
-          <button onClick={countSelected} style={{ backgroundColor: '#fff', color: '#991b1b', border: '1px solid #991b1b', padding: '6px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Calculator size={14}/> Count Leads
-          </button>
-          <button onClick={deleteSelected} style={{ backgroundColor: '#ef4444', color: '#fff', border: 'none', padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', fontWeight: '600', display: 'flex', alignItems: 'center', gap: '5px' }}>
-            <Trash2 size={14}/> Delete Selected
-          </button>
+      {/* Filters */}
+      <div className="max-w-7xl mx-auto mb-6 flex flex-wrap gap-4 items-center bg-white p-4 rounded-xl border border-slate-200 shadow-sm">
+        <div className="flex-1 min-w-[300px] relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" size={18} />
+          <input 
+            type="text" 
+            placeholder="Search name, email, or company..."
+            className="w-full pl-10 pr-4 py-2 bg-slate-50 border border-slate-200 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
+          />
         </div>
-      )}
+        <select 
+          className="bg-slate-50 border border-slate-200 px-4 py-2 rounded-lg outline-none focus:ring-2 focus:ring-blue-500"
+          value={selectedProgram}
+          onChange={(e) => setSelectedProgram(e.target.value)}
+        >
+          {programs.map(p => <option key={p} value={p}>{p}</option>)}
+        </select>
+        <button 
+          onClick={() => setShowNewOnly(!showNewOnly)}
+          className={`flex items-center gap-2 px-4 py-2 rounded-lg border transition ${showNewOnly ? 'bg-blue-600 text-white border-blue-600' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
+        >
+          <Filter size={18} /> {showNewOnly ? 'Focus Mode ON' : 'Show New Only'}
+        </button>
+        {selectedEmails.length > 0 && (
+          <button onClick={() => setSelectedEmails([])} className="text-sm text-slate-400 hover:text-slate-600 underline decoration-slate-200">
+            Deselect All
+          </button>
+        )}
+      </div>
 
-      {/* Data Table */}
-      <div style={{ background: '#fff', borderRadius: '15px', overflow: 'hidden', boxShadow: '0 4px 6px -1px rgba(0,0,0,0.1)' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-          <thead style={{ backgroundColor: '#f9fafb' }}>
-            <tr style={{ textAlign: 'left', fontSize: '11px', color: '#6b7280', textTransform: 'uppercase' }}>
-              <th style={{ padding: '20px' }}><input type="checkbox" onChange={(e) => e.target.checked ? setSelectedEmails(filteredLeads.map(l => l.email)) : setSelectedEmails([])} checked={selectedEmails.length === filteredLeads.length && filteredLeads.length > 0} /></th>
-              <th style={{ padding: '20px' }}>Lead Details</th>
-              <th style={{ padding: '20px' }}>Company</th>
-              <th style={{ padding: '20px' }}>Email</th>
-              <th style={{ padding: '20px' }}>Programs</th>
-              <th style={{ padding: '20px' }}>Status</th>
+      {/* Main Table */}
+      <div className="max-w-7xl mx-auto bg-white rounded-xl border border-slate-200 shadow-sm overflow-hidden">
+        <table className="w-full text-left">
+          <thead>
+            <tr className="bg-slate-50 border-b border-slate-200">
+              <th className="p-4 w-10"></th>
+              <th className="p-4 font-semibold text-slate-600">Lead Info</th>
+              <th className="p-4 font-semibold text-slate-600 text-center">Program Interest</th>
+              <th className="p-4 font-semibold text-slate-600 text-center">Status</th>
+              <th className="p-4 font-semibold text-slate-600">Last Imported</th>
             </tr>
           </thead>
-          <tbody>
-            {filteredLeads.map(l => (
-              <tr key={l.email} style={{ borderBottom: '1px solid #f3f4f6' }}>
-                <td style={{ padding: '20px' }}><input type="checkbox" checked={selectedEmails.includes(l.email)} onChange={() => selectedEmails.includes(l.email) ? setSelectedEmails(selectedEmails.filter(e => e !== l.email)) : setSelectedEmails([...selectedEmails, l.email])} /></td>
-                <td style={{ padding: '20px' }}><div style={{ fontWeight: '700' }}>{l.name}</div><div style={{ fontSize: '12px', color: '#6b7280' }}>{l.job_title}</div></td>
-                <td style={{ padding: '20px' }}>{l.company}</td>
-                <td style={{ padding: '20px' }}><a href={`mailto:${l.email}`} style={{ color: '#2563eb', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}>{l.email} <ExternalLink size={12}/></a></td>
-                <td style={{ padding: '20px' }}><div style={{ display: 'flex', gap: '4px', flexWrap: 'wrap' }}>{l.program.split(', ').map((p: any) => <span key={p} style={{ backgroundColor: '#eff6ff', color: '#1e40af', padding: '2px 8px', borderRadius: '4px', fontSize: '10px', fontWeight: 'bold' }}>{p}</span>)}</div></td>
-                <td style={{ padding: '20px' }}>
-                    <button onClick={() => toggleStatus(l.email, l.status)} style={{ border: 'none', padding: '8px 12px', borderRadius: '25px', fontSize: '10px', fontWeight: '800', cursor: 'pointer', minWidth: '130px', backgroundColor: l.status === 'Uncontactable' ? '#fee2e2' : l.status === 'Contacted' ? '#dcfce7' : l.status === 'Replied' ? '#dbeafe' : '#f3f4f6', color: l.status === 'Uncontactable' ? '#991b1b' : l.status === 'Contacted' ? '#166534' : l.status === 'Replied' ? '#1e40af' : '#374151' }}>{l.status.toUpperCase()}</button>
+          <tbody className="divide-y divide-slate-100">
+            {filteredLeads.map((lead) => (
+              <tr 
+                key={lead.email} 
+                className={`hover:bg-slate-50/50 transition cursor-pointer ${selectedEmails.includes(lead.email) ? 'bg-blue-50/30' : ''}`}
+                onClick={() => toggleSelect(lead.email)}
+              >
+                <td className="p-4" onClick={(e) => e.stopPropagation()}>
+                  <input 
+                    type="checkbox" 
+                    checked={selectedEmails.includes(lead.email)}
+                    onChange={() => toggleSelect(lead.email)}
+                    className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                  />
+                </td>
+                <td className="p-4">
+                  <div className="font-bold text-slate-900">{lead.name}</div>
+                  <div className="text-sm text-slate-500 flex items-center gap-1 group">
+                    <a 
+                      href={`mailto:${lead.email}`} 
+                      className="hover:text-blue-600 underline underline-offset-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {lead.email}
+                    </a>
+                  </div>
+                  <div className="text-xs text-slate-400 mt-1">{lead.company} • {lead.job_title}</div>
+                </td>
+                <td className="p-4 text-center">
+                  <div className="flex flex-wrap gap-1 justify-center">
+                    {lead.program.split(', ').map(p => (
+                      <span key={p} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-bold uppercase tracking-wider border border-slate-200">
+                        {p}
+                      </span>
+                    ))}
+                  </div>
+                </td>
+                <td className="p-4 text-center">
+                  <button 
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      toggleStatus(lead.email, lead.status);
+                    }}
+                    className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition ${
+                      lead.status === 'New' ? 'bg-amber-50 text-amber-600 border border-amber-100' :
+                      lead.status === 'Uncontactable' ? 'bg-slate-100 text-slate-500 border border-slate-200' :
+                      lead.status === 'Contacted' ? 'bg-blue-50 text-blue-600 border border-blue-100' :
+                      'bg-emerald-50 text-emerald-600 border border-emerald-100'
+                    }`}
+                  >
+                    {lead.status === 'New' && <AlertCircle size={14} />}
+                    {lead.status === 'Uncontactable' && <XCircle size={14} />}
+                    {lead.status === 'Contacted' && <MessageSquare size={14} />}
+                    {lead.status === 'Replied' && <CheckCircle2 size={14} />}
+                    {lead.status.toUpperCase()}
+                  </button>
+                </td>
+                <td className="p-4 text-sm text-slate-500 italic">
+                  {lead.pasted_at}
                 </td>
               </tr>
             ))}
           </tbody>
         </table>
+        {filteredLeads.length === 0 && (
+          <div className="p-12 text-center text-slate-400 flex flex-col items-center gap-2">
+            <Search size={40} className="text-slate-200" />
+            No leads match your current filter.
+          </div>
+        )}
       </div>
     </div>
   );
-}
+};
+
+export default App;

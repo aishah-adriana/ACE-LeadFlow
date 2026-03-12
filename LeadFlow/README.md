@@ -1,73 +1,56 @@
-# React + TypeScript + Vite
+Markdown
+# ACE LeadFlow 🚀
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+**ACE LeadFlow** is a professional, full-stack CRM dashboard designed to manage academic leads across 13 specialized courses. It automates the process of importing data from Excel, merging duplicate interests, and tracking lead communication status.
 
-Currently, two official plugins are available:
+## ✨ Key Features
+* **Multi-Course Filtering:** Toggle between 13 programs (SO, OM, AIBL, CF, PM, OB, SP, FA, ME, TIL, SFBL, PMD, QM).
+* **Smart Merge Logic:** Automatically combines interest from multiple sheets into one lead profile.
+* **Status Toggle Cycle:** NEW ➔ UNCONTACTABLE ➔ CONTACTED ➔ REPLIED.
+* **Deep-Scan Counter:** Select multiple leads for a detailed breakdown of counts per course.
+* **GMT+8 Timestamp:** Specifically tracked for Malaysian Time (MYT).
+* **Focus Mode:** "Show New Only" toggle to quickly clear through the daily backlog.
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
+## 🛠️ Tech Stack
+* **Frontend:** React.js, Vite, Lucide Icons
+* **Backend:** Node.js (Express), TSX
+* **Database:** SQLite (better-sqlite3)
+* **Scripting:** Excel Office Scripts (TypeScript)
 
-## React Compiler
+## 🚀 How to Run
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### 1. Setup
+Install the dependencies:
+```bash
+npm install
+2. Launch the Application
+Run the Server and the Dashboard in two different terminal tabs.
 
-## Expanding the ESLint configuration
+Terminal 1 (Backend):
 
-If you are developing a production application, we recommend updating the configuration to enable type-aware lint rules:
+Bash
+npx tsx server.ts
+Terminal 2 (Frontend):
 
-```js
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
+Bash
+npm run dev
+3. Data Sync
+Run the Office Script in your Excel file.
 
-      // Remove tseslint.configs.recommended and replace with this
-      tseslint.configs.recommendedTypeChecked,
-      // Alternatively, use this for stricter rules
-      tseslint.configs.strictTypeChecked,
-      // Optionally, add this for stylistic rules
-      tseslint.configs.stylisticTypeChecked,
+Copy the JSON output.
 
-      // Other configs...
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+Click "Import Excel Data" on the dashboard and paste the code.
 
-You can also install [eslint-plugin-react-x](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-x) and [eslint-plugin-react-dom](https://github.com/Rel1cx/eslint-react/tree/main/packages/plugins/eslint-plugin-react-dom) for React-specific lint rules:
+🔒 Data Privacy
+The leadflow.db file is excluded from this repository via .gitignore to ensure lead information remains local.
 
-```js
-// eslint.config.js
-import reactX from 'eslint-plugin-react-x'
-import reactDom from 'eslint-plugin-react-dom'
 
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```
+---
+
+### Then, push the update to GitHub:
+Run these in your terminal to replace the old "Vite" description with your new one:
+1. `git add README.md`
+2. `git commit -m "Replace template README with project documentation"`
+3. `git push`
+
+**Now your GitHub page will actually look like YOUR project! Would you like me to show you how to add a "Screenshot" section to the README as well?**
