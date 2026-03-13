@@ -32,3 +32,5 @@ leadflow.db
 
 # System files
 .DS_Store
+.vercel
+.env*.local

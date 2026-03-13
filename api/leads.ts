@@ -2,42 +2,54 @@ import { sql } from '@vercel/postgres';
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // 1. GET ALL LEADS
   if (req.method === 'GET') {
-    const { rows } = await sql`SELECT * FROM leads ORDER BY pasted_at DESC`;
-    return res.status(200).json(rows);
+    try {
+      const { rows } = await sql`SELECT * FROM leads ORDER BY pasted_at DESC`;
+      return res.status(200).json(rows);
+    } catch (err) { return res.status(500).json({ error: "Fetch failed" }); }
   }
 
-  // 2. BULK IMPORT (Smart Merge)
   if (req.method === 'POST') {
-    const leads = req.body;
-    const now = new Date().toLocaleString('en-GB', { 
-        day: '2-digit', month: 'short', year: 'numeric', 
-        hour: '2-digit', minute: '2-digit', hour12: true, 
-        timeZone: 'Asia/Kuala_Lumpur' 
-    });
+    try {
+      const leads = req.body;
+      const timestamp = new Date().toLocaleString('en-GB', { timeZone: 'Asia/Singapore' });
 
-    for (const lead of leads) {
-      await sql`
-        INSERT INTO leads (email, name, company, job_title, program, status, pasted_at)
-        VALUES (${lead.email}, ${lead.name}, ${lead.company}, ${lead.job_title}, ${lead.program}, 'New', ${now})
-        ON CONFLICT (email) DO UPDATE SET
-        program = CASE 
-          WHEN leads.program NOT LIKE '%' || EXCLUDED.program || '%' 
-          THEN leads.program || ', ' || EXCLUDED.program 
-          ELSE leads.program END,
-        pasted_at = ${now};
-      `;
+      // PARALLEL BATCH PROCESSING: This fires all requests at once
+      await Promise.all(leads.map(async (lead: any) => {
+        const existing = await sql`SELECT program FROM leads WHERE email = ${lead.email}`;
+        const incomingStatus = lead.status || 'New';
+
+        if (existing.rowCount > 0) {
+          const oldPrograms = existing.rows[0].program.split(', ');
+          const updatedPrograms = oldPrograms.includes(lead.program) 
+            ? oldPrograms 
+            : [...oldPrograms, lead.program];
+
+          return sql`
+            UPDATE leads 
+            SET program = ${updatedPrograms.join(', ')}, 
+                status = ${incomingStatus}, 
+                pasted_at = ${timestamp}
+            WHERE email = ${lead.email}
+          `;
+        } else {
+          return sql`
+            INSERT INTO leads (email, name, company, job_title, program, status, pasted_at)
+            VALUES (${lead.email}, ${lead.name}, ${lead.company}, ${lead.job_title}, ${lead.program}, ${incomingStatus}, ${timestamp})
+          `;
+        }
+      }));
+
+      return res.status(200).json({ success: true });
+    } catch (err) {
+      console.error(err);
+      return res.status(500).json({ error: "Import failed" });
     }
-    return res.status(200).json({ success: true });
   }
 
-  // 3. DELETE MULTIPLE
   if (req.method === 'DELETE') {
     const { emails } = req.body;
-    for (const email of emails) {
-      await sql`DELETE FROM leads WHERE email = ${email}`;
-    }
+    await sql`DELETE FROM leads WHERE email = ANY(${emails})`;
     return res.status(200).json({ success: true });
   }
 }
