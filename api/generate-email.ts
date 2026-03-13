@@ -1,22 +1,15 @@
 import { VercelRequest, VercelResponse } from '@vercel/node';
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method !== 'POST') return res.status(405).end();
+  if (req.method !== 'POST') return res.status(405).send('Method Not Allowed');
 
   const { name, position, company, interests } = req.body;
+  const apiKey = process.env.GEMINI_API_KEY;
 
-  const prompt = `
-    You are a professional executive education advisor. 
-    Write a short, high-impact email (max 3 sentences) to ${name}, who is a ${position} at ${company}.
-    They have shown interest in the following courses: ${interests}.
-    Tone: Professional, persuasive, and helpful. 
-    Mention how these specific courses align with their background as a ${position}.
-    Do not include placeholders like [Your Name]. Just the body text.
-  `;
+  const prompt = `Write a professional 3-sentence email to ${name}, a ${position} at ${company}, interested in ${interests}. Focus on ROI.`;
 
   try {
-    // Note: You will need to add your API_KEY to Vercel Environment Variables
-    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -24,11 +17,10 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
       })
     });
 
-    const data = await res.json();
+    const data: any = await response.json();
     const draft = data.candidates[0].content.parts[0].text;
-    
     return res.status(200).json({ draft });
   } catch (err) {
-    return res.status(500).json({ error: "AI Generation failed" });
+    return res.status(500).json({ error: "AI failed" });
   }
 }
