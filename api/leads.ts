@@ -34,6 +34,7 @@ export default async function handler(req: any, res: any) {
       const now = new Date().toLocaleString('en-GB', {
         day: '2-digit', month: 'short', year: 'numeric',
         hour: '2-digit', minute: '2-digit', hour12: true,
+        timeZone: 'Asia/Kuala_Lumpur',
       });
       await kv.set('meta:last_imported', now);
 
