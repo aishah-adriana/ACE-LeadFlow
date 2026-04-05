@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, Download, Trash2, Mail, Sparkles, X, Copy, Check } from 'lucide-react';
+import { Users, Search, AlertCircle, RefreshCw } from 'lucide-react';
 
 interface Lead {
   email: string;
@@ -11,196 +11,312 @@ interface Lead {
   pasted_at: string;
 }
 
+const PROGRAMS = [
+  'SO', 'OM', 'AIBL', 'CF', 'PM', 'OB', 'SP',
+  'FA', 'ME', 'TIL', 'SFBL', 'PMD', 'QM', 'PE',
+];
+
+const STATUS_CYCLE: Record<string, string> = {
+  New: 'Contacted',
+  Contacted: 'Replied',
+  Replied: 'Uncontactable',
+  Uncontactable: 'Duplicate',
+  Duplicate: 'New',
+};
+
+const STATUS_STYLE: Record<string, string> = {
+  New:            'text-blue-600 border-blue-100 bg-blue-50',
+  Contacted:      'text-green-700 border-green-200 bg-green-50',
+  Replied:        'text-emerald-600 border-emerald-100 bg-emerald-50',
+  Uncontactable:  'text-orange-500 border-orange-100 bg-orange-50',
+  Duplicate:      'text-red-600 border-red-100 bg-red-50',
+};
+
 const App = () => {
   const [leads, setLeads] = useState<Lead[]>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedProgram, setSelectedProgram] = useState('All');
-  const [selectedEmails, setSelectedEmails] = useState<string[]>([]);
+  const [multiCourseOnly, setMultiCourseOnly] = useState(false);
   const [importText, setImportText] = useState('');
   const [isImporting, setIsImporting] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
-
-  // AI State
-  const [aiDraft, setAiDraft] = useState('');
-  const [isDrafting, setIsDrafting] = useState(false);
-  const [showAiModal, setShowAiModal] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const programs = ['All', 'SO', 'OM', 'AIBL', 'CF', 'PM', 'OB', 'SP', 'FA', 'ME', 'TIL', 'SFBL', 'PMD', 'QM'];
+  const [lastImported, setLastImported] = useState<string | null>(null);
 
   const fetchLeads = async () => {
     try {
       const res = await fetch(`/api/leads?t=${Date.now()}`);
       const data = await res.json();
-      setLeads(data || []);
-    } catch (err) { console.error(err); }
+      setLeads(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Fetch leads error:', err);
+    }
   };
 
-  useEffect(() => { fetchLeads(); }, []);
+  const fetchMeta = async () => {
+    try {
+      const res = await fetch('/api/meta');
+      const data = await res.json();
+      setLastImported(data.last_imported || null);
+    } catch (err) {
+      console.error('Fetch meta error:', err);
+    }
+  };
+
+  useEffect(() => {
+    fetchLeads();
+    fetchMeta();
+  }, []);
 
   const handleImport = async () => {
-    if (!importText || isProcessing) return;
+    if (!importText.trim() || isProcessing) return;
     setIsProcessing(true);
     try {
+      const cleaned = importText
+        .replace(/[\u0000-\u001F\u007F-\u009F]/g, '')
+        .replace(/[\u201C\u201D\u201E\u201F\u2033\u2036]/g, '"')
+        .replace(/[\u2018\u2019\u201A\u201B\u2032\u2035]/g, "'")
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
+
       const res = await fetch('/api/leads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: importText,
+        body: JSON.stringify(parsed),
       });
-      if (res.ok) { setImportText(''); setIsImporting(false); await fetchLeads(); }
-    } catch (err) { alert("Import failed."); } finally { setIsProcessing(false); }
-  };
 
-  const generateDraft = async (lead: Lead) => {
-    setIsDrafting(true);
-    setAiDraft('');
-    setShowAiModal(true);
-    try {
-      const res = await fetch('/api/generate-email', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: lead.name,
-          position: lead.job_title,
-          company: lead.company,
-          interests: lead.program
-        }),
-      });
-      const data = await res.json();
-      setAiDraft(data.draft || "No draft generated.");
-    } catch (err) {
-      setAiDraft("Error: Make sure GEMINI_API_KEY is added to Vercel Environment Variables.");
+      if (res.ok) {
+        setImportText('');
+        setIsImporting(false);
+        await fetchLeads();
+        await fetchMeta();
+      } else {
+        const err = await res.json();
+        alert(`Server error: ${err.error}`);
+      }
+    } catch (err: any) {
+      alert(`Parse error: ${err.message}`);
     } finally {
-      setIsDrafting(false);
+      setIsProcessing(false);
     }
   };
 
   const toggleStatus = async (email: string, current: string) => {
-    const cycle: Record<string, string> = { 'New': 'Uncontactable', 'Uncontactable': 'Contacted', 'Contacted': 'Replied', 'Replied': 'New' };
-    const next = cycle[current] || 'New';
+    const next = STATUS_CYCLE[current] || 'New';
     setLeads(prev => prev.map(l => l.email === email ? { ...l, status: next } : l));
-    await fetch('/api/status', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, status: next }) });
+    await fetch('/api/status', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, status: next }),
+    });
   };
 
-  const filteredLeads = leads.filter(l => 
-    (l.name + l.email + l.company).toLowerCase().includes(searchTerm.toLowerCase()) &&
-    (selectedProgram === 'All' || l.program.includes(selectedProgram))
-  );
+  const filteredLeads = leads.filter(l => {
+    const matchesSearch = (l.name + l.email + l.company)
+      .toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesProgram = selectedProgram === 'All' || l.program.includes(selectedProgram);
+    const matchesMulti = !multiCourseOnly || l.program.includes(',');
+    return matchesSearch && matchesProgram && matchesMulti;
+  });
 
   const kpis = {
-    total: filteredLeads.length,
-    contacted: filteredLeads.filter(l => l.status === 'Contacted').length,
-    replied: filteredLeads.filter(l => l.status === 'Replied').length,
-    asOf: leads.length > 0 ? leads[0].pasted_at : '---'
+    total: leads.length,
+    outreachSent: leads.filter(l => l.status === 'Contacted' || l.status === 'Replied').length,
+    replies: leads.filter(l => l.status === 'Replied').length,
+    newLeads: leads.filter(l => l.status === 'New').length,
   };
 
   return (
     <div className="min-h-screen bg-slate-50 p-8 text-slate-900 font-sans">
-      {/* AI MODAL */}
-      {showAiModal && (
-        <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-xl rounded-3xl shadow-2xl p-8 border border-slate-200">
-            <div className="flex justify-between items-center mb-6">
-              <h3 className="font-black text-xl flex items-center gap-2 text-blue-600"><Sparkles /> AI Email Draft</h3>
-              <button onClick={() => setShowAiModal(false)} className="p-2 hover:bg-slate-100 rounded-full transition-colors"><X /></button>
-            </div>
-            {isDrafting ? (
-              <div className="py-12 text-center flex flex-col items-center gap-4">
-                <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin"></div>
-                <p className="font-bold text-slate-400">Gemini is writing...</p>
-              </div>
+      <div className="max-w-[1400px] mx-auto">
+
+        {/* Header */}
+        <div className="flex justify-between items-start mb-10">
+          <div>
+            <h1 className="text-3xl font-black tracking-tighter uppercase flex items-center gap-3 text-slate-800">
+              <Users className="text-blue-600" size={32} />
+              ACE LeadFlow
+            </h1>
+            {lastImported ? (
+              <p className="mt-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">
+                Data as of: {lastImported}
+              </p>
             ) : (
-              <div className="space-y-6">
-                <div className="bg-slate-50 p-6 rounded-2xl border italic text-slate-700 leading-relaxed whitespace-pre-wrap">{aiDraft}</div>
-                <button 
-                  onClick={() => { navigator.clipboard.writeText(aiDraft); setCopied(true); setTimeout(() => setCopied(false), 2000); }} 
-                  className="w-full bg-blue-600 text-white py-4 rounded-2xl font-black hover:bg-blue-700 transition-all shadow-lg shadow-blue-200"
-                >
-                  {copied ? "COPIED TO CLIPBOARD!" : "COPY DRAFT"}
-                </button>
-              </div>
+              <p className="mt-1 text-[11px] font-semibold text-slate-300 uppercase tracking-widest">
+                No data imported yet
+              </p>
             )}
           </div>
-        </div>
-      )}
-
-      {/* HEADER */}
-      <div className="max-w-[1400px] mx-auto flex justify-between items-center mb-8">
-        <h1 className="text-3xl font-black tracking-tight flex items-center gap-3">
-          <Users className="text-blue-600" size={32} /> ACE LeadFlow <span className="text-xs bg-blue-100 text-blue-600 px-2 py-1 rounded-md uppercase">AI Enabled</span>
-        </h1>
-        <button onClick={() => setIsImporting(!isImporting)} className="bg-blue-600 text-white px-6 py-2.5 rounded-xl font-bold shadow-lg shadow-blue-200 hover:scale-105 transition-transform">
-          Import Excel Data
-        </button>
-      </div>
-
-      {/* KPIs */}
-      <div className="max-w-[1400px] mx-auto grid grid-cols-4 gap-4 mb-8">
-        {[
-          { l: 'Total Leads', v: kpis.total, c: 'text-blue-600' },
-          { l: 'Contacted', v: kpis.contacted, c: 'text-indigo-600' },
-          { l: 'Replies', v: kpis.replied, c: 'text-emerald-600' },
-          { l: 'Last Sync', v: kpis.asOf, small: true, c: 'text-orange-600' }
-        ].map((k, i) => (
-          <div key={i} className="bg-white p-5 rounded-2xl border border-slate-200 shadow-sm">
-            <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{k.l}</p>
-            <p className={`font-black ${k.c} ${k.small ? 'text-xs' : 'text-4xl'}`}>{k.v}</p>
-          </div>
-        ))}
-      </div>
-
-      {/* FILTER BUTTONS */}
-      <div className="max-w-[1400px] mx-auto mb-6 bg-white p-4 rounded-2xl border border-slate-200 flex flex-wrap gap-2">
-        {programs.map(p => (
-          <button key={p} onClick={() => setSelectedProgram(p)} className={`px-4 py-1.5 rounded-full text-xs font-bold transition-all border ${selectedProgram === p ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-slate-50 text-slate-500 hover:border-blue-300'}`}>
-            {p}
+          <button
+            onClick={() => setIsImporting(!isImporting)}
+            className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-sm uppercase shadow-xl hover:bg-blue-700 transition-all active:scale-95"
+          >
+            {isImporting ? 'Close' : 'Import Excel Data'}
           </button>
-        ))}
-      </div>
+        </div>
 
-      {/* TABLE */}
-      <div className="max-w-[1400px] mx-auto bg-white rounded-3xl border border-slate-200 shadow-sm overflow-hidden">
-        <table className="w-full text-left">
-          <thead className="bg-slate-50 border-b text-[10px] font-black uppercase text-slate-400 tracking-widest">
-            <tr>
-              <th className="p-4 w-12 text-center"><input type="checkbox" className="w-5 h-5 accent-blue-600" /></th>
-              <th className="p-4">Name</th>
-              <th className="p-4">Contact & AI Assistant</th>
-              <th className="p-4">Company Info</th>
-              <th className="p-4 text-center">Status Control</th>
-            </tr>
-          </thead>
-          <tbody className="text-sm font-medium">
-            {filteredLeads.map(l => (
-              <tr key={l.email} className="border-b border-slate-50 hover:bg-blue-50/20 transition-colors">
-                <td className="p-4 text-center"><input type="checkbox" className="w-5 h-5 accent-blue-600" /></td>
-                <td className="p-4 font-black text-slate-900">{l.name}</td>
-                <td className="p-4">
-                  <div className="flex items-center gap-3">
-                    <a href={`mailto:${l.email}`} className="text-blue-600 font-bold hover:underline flex items-center gap-1">
-                      <Mail size={14}/> {l.email}
-                    </a>
-                    <button 
-                      onClick={() => generateDraft(l)} 
-                      className="flex items-center gap-2 bg-blue-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black uppercase hover:bg-blue-700 shadow-md shadow-blue-100 transition-all"
-                    >
-                      <Sparkles size={12}/> Draft Email
-                    </button>
-                  </div>
-                </td>
-                <td className="p-4">
-                  <div className="text-slate-800 font-bold text-xs uppercase">{l.job_title}</div>
-                  <div className="text-slate-400 text-[10px] font-black">{l.company}</div>
-                </td>
-                <td className="p-4 text-center">
-                  <button onClick={() => toggleStatus(l.email, l.status)} className="w-36 py-2 rounded-xl text-[10px] font-black uppercase text-white bg-blue-500 shadow-sm">
-                    {l.status}
-                  </button>
-                </td>
+        {/* Import Panel */}
+        {isImporting && (
+          <div className="mb-10 bg-white p-6 rounded-3xl border shadow-xl">
+            <div className="flex items-center gap-2 mb-3 text-blue-600 bg-blue-50 p-3 rounded-xl border border-blue-100">
+              <AlertCircle size={16} />
+              <p className="text-[10px] font-bold uppercase tracking-tight">
+                Paste your Office Script JSON output below. Hidden Excel characters will be stripped automatically.
+              </p>
+            </div>
+            <textarea
+              className="w-full h-40 p-4 border rounded-2xl font-mono text-xs mb-4 outline-none bg-slate-50 focus:ring-2 ring-blue-500"
+              placeholder='Paste JSON starting with [ ...'
+              value={importText}
+              onChange={e => setImportText(e.target.value)}
+            />
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setIsImporting(false)} className="font-bold text-slate-400">
+                Cancel
+              </button>
+              <button
+                onClick={handleImport}
+                disabled={isProcessing}
+                className="bg-slate-900 text-white px-8 py-2 rounded-xl font-bold uppercase text-xs hover:bg-black transition-all disabled:opacity-50"
+              >
+                {isProcessing ? (
+                  <span className="flex items-center gap-2">
+                    <RefreshCw size={12} className="animate-spin" /> Syncing...
+                  </span>
+                ) : 'Sync Leads'}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* KPI Cards */}
+        <div className="grid grid-cols-4 gap-4 mb-8">
+          {[
+            { label: 'Total Leads',    value: kpis.total,        color: 'text-blue-600' },
+            { label: 'Outreach Sent',  value: kpis.outreachSent, color: 'text-indigo-600' },
+            { label: 'Replies',        value: kpis.replies,       color: 'text-emerald-600' },
+            { label: 'New Leads',      value: kpis.newLeads,      color: 'text-amber-500' },
+          ].map((k, i) => (
+            <div key={i} className="bg-white p-6 rounded-[30px] border shadow-sm">
+              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{k.label}</p>
+              <p className={`font-black text-4xl ${k.color}`}>{k.value}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* Search */}
+        <div className="relative mb-6">
+          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+          <input
+            type="text"
+            placeholder="Search by name, email, or company..."
+            className="w-full pl-12 pr-4 py-3 bg-white border rounded-2xl outline-none focus:ring-2 ring-blue-100"
+            value={searchTerm}
+            onChange={e => setSearchTerm(e.target.value)}
+          />
+        </div>
+
+        {/* Program Filter + Multi-Course Toggle */}
+        <div className="mb-8 flex flex-wrap gap-2 items-center">
+          <button
+            onClick={() => { setSelectedProgram('All'); setMultiCourseOnly(false); }}
+            className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border transition-all ${
+              selectedProgram === 'All' && !multiCourseOnly
+                ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                : 'bg-white text-slate-400 hover:border-slate-300'
+            }`}
+          >
+            All
+          </button>
+          {PROGRAMS.map(p => (
+            <button
+              key={p}
+              onClick={() => { setSelectedProgram(p); setMultiCourseOnly(false); }}
+              className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border transition-all ${
+                selectedProgram === p && !multiCourseOnly
+                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
+                  : 'bg-white text-slate-400 hover:border-slate-300'
+              }`}
+            >
+              {p}
+            </button>
+          ))}
+          <button
+            onClick={() => { setMultiCourseOnly(!multiCourseOnly); setSelectedProgram('All'); }}
+            className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border transition-all ${
+              multiCourseOnly
+                ? 'bg-orange-500 text-white border-orange-500 shadow-md'
+                : 'bg-white text-orange-400 border-orange-200 hover:border-orange-300'
+            }`}
+          >
+            Multi-Course
+          </button>
+        </div>
+
+        {/* Leads Table */}
+        <div className="bg-white rounded-[40px] shadow-sm border overflow-hidden">
+          <table className="w-full text-left">
+            <thead className="bg-slate-50/50 border-b text-[10px] uppercase font-black text-slate-400">
+              <tr>
+                <th className="p-6">Lead Details</th>
+                <th className="p-6">Email Address</th>
+                <th className="p-6">Course Interests</th>
+                <th className="p-6">Status</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody className="divide-y text-sm">
+              {filteredLeads.map((l, idx) => (
+                <tr key={`${l.email}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
+                  <td className="p-6">
+                    <div className="font-black text-slate-900">{l.name || '—'}</div>
+                    <div className="text-[10px] font-bold text-slate-400 uppercase leading-tight">
+                      {[l.job_title, l.company].filter(Boolean).join(' @ ') || '—'}
+                    </div>
+                  </td>
+                  <td className="p-6 font-mono text-[11px] text-slate-400">{l.email}</td>
+                  <td className="p-6">
+                    <div className="flex flex-wrap gap-1">
+                      {l.program.split(/,\s*/).filter(Boolean).map(p => (
+                        <span
+                          key={p}
+                          className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[9px] font-black border border-blue-100 uppercase"
+                        >
+                          {p.trim()}
+                        </span>
+                      ))}
+                    </div>
+                  </td>
+                  <td className="p-6">
+                    <button
+                      onClick={() => toggleStatus(l.email, l.status)}
+                      className={`px-4 py-1.5 rounded-lg font-black text-[9px] uppercase border transition-all hover:opacity-80 ${
+                        STATUS_STYLE[l.status] || STATUS_STYLE['New']
+                      }`}
+                      title="Click to advance status"
+                    >
+                      {l.status || 'New'}
+                    </button>
+                  </td>
+                </tr>
+              ))}
+              {filteredLeads.length === 0 && (
+                <tr>
+                  <td colSpan={4} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest">
+                    {leads.length === 0
+                      ? 'No leads yet. Import your Excel data to get started.'
+                      : 'No leads match your current filters.'}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {/* Footer */}
+        <p className="mt-6 text-center text-[10px] text-slate-300 font-bold uppercase tracking-widest">
+          Showing {filteredLeads.length} of {leads.length} leads
+        </p>
+
       </div>
     </div>
   );
