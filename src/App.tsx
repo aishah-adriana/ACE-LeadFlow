@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Users, Search, AlertCircle, RefreshCw } from 'lucide-react';
+import { Users, Search, AlertCircle, RefreshCw, Trash2 } from 'lucide-react';
 
 interface Lead {
   email: string;
@@ -25,11 +25,11 @@ const STATUS_CYCLE: Record<string, string> = {
 };
 
 const STATUS_STYLE: Record<string, string> = {
-  New:            'text-blue-600 border-blue-100 bg-blue-50',
-  Contacted:      'text-green-700 border-green-200 bg-green-50',
-  Replied:        'text-emerald-600 border-emerald-100 bg-emerald-50',
-  Uncontactable:  'text-orange-500 border-orange-100 bg-orange-50',
-  Duplicate:      'text-red-600 border-red-100 bg-red-50',
+  New:            'text-slate-600 border-slate-200 bg-slate-50',
+  Contacted:      'text-emerald-700 border-emerald-200 bg-emerald-50',
+  Replied:        'text-blue-700 border-blue-200 bg-blue-50',
+  Uncontactable:  'text-amber-700 border-amber-200 bg-amber-50',
+  Duplicate:      'text-red-600 border-red-200 bg-red-50',
 };
 
 const App = () => {
@@ -41,6 +41,8 @@ const App = () => {
   const [isImporting, setIsImporting] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
   const [lastImported, setLastImported] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [isDeleting, setIsDeleting] = useState(false);
 
   const fetchLeads = async () => {
     try {
@@ -111,6 +113,27 @@ const App = () => {
     });
   };
 
+  const handleDeleteSelected = async () => {
+    if (selected.size === 0) return;
+    if (!confirm(`Delete ${selected.size} lead${selected.size > 1 ? 's' : ''}? This cannot be undone.`)) return;
+    setIsDeleting(true);
+    try {
+      const res = await fetch('/api/leads', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ emails: Array.from(selected) }),
+      });
+      if (res.ok) {
+        setLeads(prev => prev.filter(l => !selected.has(l.email)));
+        setSelected(new Set());
+      }
+    } catch (err) {
+      console.error('Delete error:', err);
+    } finally {
+      setIsDeleting(false);
+    }
+  };
+
   const filteredLeads = leads.filter(l => {
     const matchesSearch = (l.name + l.email + l.company)
       .toLowerCase().includes(searchTerm.toLowerCase());
@@ -118,6 +141,26 @@ const App = () => {
     const matchesMulti = !multiCourseOnly || l.program.includes(',');
     return matchesSearch && matchesProgram && matchesMulti;
   });
+
+  const allFilteredSelected = filteredLeads.length > 0 && filteredLeads.every(l => selected.has(l.email));
+
+  const toggleSelectAll = () => {
+    if (allFilteredSelected) {
+      const next = new Set(selected);
+      filteredLeads.forEach(l => next.delete(l.email));
+      setSelected(next);
+    } else {
+      const next = new Set(selected);
+      filteredLeads.forEach(l => next.add(l.email));
+      setSelected(next);
+    }
+  };
+
+  const toggleSelectOne = (email: string) => {
+    const next = new Set(selected);
+    next.has(email) ? next.delete(email) : next.add(email);
+    setSelected(next);
+  };
 
   const kpis = {
     total: leads.length,
@@ -127,29 +170,23 @@ const App = () => {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 p-8 text-slate-900 font-sans">
-      <div className="max-w-[1400px] mx-auto">
+    <div className="min-h-screen bg-gray-50 p-8 text-slate-800 font-sans">
+      <div className="max-w-[1500px] mx-auto">
 
         {/* Header */}
-        <div className="flex justify-between items-start mb-10">
+        <div className="flex justify-between items-start mb-8">
           <div>
-            <h1 className="text-3xl font-black tracking-tighter uppercase flex items-center gap-3 text-slate-800">
-              <Users className="text-blue-600" size={32} />
+            <h1 className="text-2xl font-bold tracking-tight flex items-center gap-2 text-slate-800">
+              <Users size={24} className="text-slate-600" />
               ACE LeadFlow
             </h1>
-            {lastImported ? (
-              <p className="mt-1 text-[11px] font-semibold text-slate-400 uppercase tracking-widest">
-                Data as of: {lastImported}
-              </p>
-            ) : (
-              <p className="mt-1 text-[11px] font-semibold text-slate-300 uppercase tracking-widest">
-                No data imported yet
-              </p>
-            )}
+            <p className="mt-1 text-xs text-slate-400">
+              {lastImported ? `Last imported: ${lastImported}` : 'No data imported yet'}
+            </p>
           </div>
           <button
             onClick={() => setIsImporting(!isImporting)}
-            className="bg-blue-600 text-white px-8 py-3 rounded-2xl font-black text-sm uppercase shadow-xl hover:bg-blue-700 transition-all active:scale-95"
+            className="bg-slate-800 text-white px-6 py-2.5 rounded-lg font-semibold text-sm hover:bg-slate-700 transition-colors"
           >
             {isImporting ? 'Close' : 'Import Excel Data'}
           </button>
@@ -157,27 +194,27 @@ const App = () => {
 
         {/* Import Panel */}
         {isImporting && (
-          <div className="mb-10 bg-white p-6 rounded-3xl border shadow-xl">
-            <div className="flex items-center gap-2 mb-3 text-blue-600 bg-blue-50 p-3 rounded-xl border border-blue-100">
-              <AlertCircle size={16} />
-              <p className="text-[10px] font-bold uppercase tracking-tight">
+          <div className="mb-8 bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 mb-3 text-slate-600 bg-slate-50 p-3 rounded-lg border border-slate-200">
+              <AlertCircle size={15} />
+              <p className="text-xs font-medium">
                 Paste your Office Script JSON output below. Hidden Excel characters will be stripped automatically.
               </p>
             </div>
             <textarea
-              className="w-full h-40 p-4 border rounded-2xl font-mono text-xs mb-4 outline-none bg-slate-50 focus:ring-2 ring-blue-500"
+              className="w-full h-40 p-4 border border-slate-200 rounded-lg font-mono text-xs mb-4 outline-none bg-slate-50 focus:ring-2 ring-slate-300"
               placeholder='Paste JSON starting with [ ...'
               value={importText}
               onChange={e => setImportText(e.target.value)}
             />
             <div className="flex justify-end gap-3">
-              <button onClick={() => setIsImporting(false)} className="font-bold text-slate-400">
+              <button onClick={() => setIsImporting(false)} className="font-medium text-sm text-slate-400 hover:text-slate-600">
                 Cancel
               </button>
               <button
                 onClick={handleImport}
                 disabled={isProcessing}
-                className="bg-slate-900 text-white px-8 py-2 rounded-xl font-bold uppercase text-xs hover:bg-black transition-all disabled:opacity-50"
+                className="bg-slate-800 text-white px-6 py-2 rounded-lg font-semibold text-sm hover:bg-slate-700 transition-colors disabled:opacity-50"
               >
                 {isProcessing ? (
                   <span className="flex items-center gap-2">
@@ -192,38 +229,38 @@ const App = () => {
         {/* KPI Cards */}
         <div className="grid grid-cols-4 gap-4 mb-8">
           {[
-            { label: 'Total Leads',    value: kpis.total,        color: 'text-blue-600' },
-            { label: 'Outreach Sent',  value: kpis.outreachSent, color: 'text-indigo-600' },
-            { label: 'Replies',        value: kpis.replies,       color: 'text-emerald-600' },
-            { label: 'New Leads',      value: kpis.newLeads,      color: 'text-amber-500' },
+            { label: 'Total Leads',   value: kpis.total },
+            { label: 'Outreach Sent', value: kpis.outreachSent },
+            { label: 'Replies',       value: kpis.replies },
+            { label: 'New Leads',     value: kpis.newLeads },
           ].map((k, i) => (
-            <div key={i} className="bg-white p-6 rounded-[30px] border shadow-sm">
-              <p className="text-[10px] font-black text-slate-400 uppercase tracking-widest mb-1">{k.label}</p>
-              <p className={`font-black text-4xl ${k.color}`}>{k.value}</p>
+            <div key={i} className="bg-white p-5 rounded-xl border border-slate-200">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest mb-1">{k.label}</p>
+              <p className="font-bold text-3xl text-slate-800">{k.value}</p>
             </div>
           ))}
         </div>
 
         {/* Search */}
-        <div className="relative mb-6">
-          <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-slate-300" size={18} />
+        <div className="relative mb-4">
+          <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-300" size={16} />
           <input
             type="text"
             placeholder="Search by name, email, or company..."
-            className="w-full pl-12 pr-4 py-3 bg-white border rounded-2xl outline-none focus:ring-2 ring-blue-100"
+            className="w-full pl-10 pr-4 py-2.5 bg-white border border-slate-200 rounded-lg text-sm outline-none focus:ring-2 ring-slate-200"
             value={searchTerm}
             onChange={e => setSearchTerm(e.target.value)}
           />
         </div>
 
-        {/* Program Filter + Multi-Course Toggle */}
-        <div className="mb-8 flex flex-wrap gap-2 items-center">
+        {/* Program Filter */}
+        <div className="mb-6 flex flex-wrap gap-1.5 items-center">
           <button
             onClick={() => { setSelectedProgram('All'); setMultiCourseOnly(false); }}
-            className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border transition-all ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
               selectedProgram === 'All' && !multiCourseOnly
-                ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                : 'bg-white text-slate-400 hover:border-slate-300'
+                ? 'bg-slate-800 text-white border-slate-800'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
             }`}
           >
             All
@@ -232,10 +269,10 @@ const App = () => {
             <button
               key={p}
               onClick={() => { setSelectedProgram(p); setMultiCourseOnly(false); }}
-              className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border transition-all ${
+              className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
                 selectedProgram === p && !multiCourseOnly
-                  ? 'bg-blue-600 text-white border-blue-600 shadow-md'
-                  : 'bg-white text-slate-400 hover:border-slate-300'
+                  ? 'bg-slate-800 text-white border-slate-800'
+                  : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
               }`}
             >
               {p}
@@ -243,53 +280,87 @@ const App = () => {
           ))}
           <button
             onClick={() => { setMultiCourseOnly(!multiCourseOnly); setSelectedProgram('All'); }}
-            className={`px-4 py-2 rounded-full text-[10px] font-black uppercase border transition-all ${
+            className={`px-3 py-1.5 rounded-md text-xs font-semibold border transition-colors ${
               multiCourseOnly
-                ? 'bg-orange-500 text-white border-orange-500 shadow-md'
-                : 'bg-white text-orange-400 border-orange-200 hover:border-orange-300'
+                ? 'bg-slate-800 text-white border-slate-800'
+                : 'bg-white text-slate-500 border-slate-200 hover:border-slate-400'
             }`}
           >
             Multi-Course
           </button>
         </div>
 
+        {/* Toolbar: selection count + delete */}
+        {selected.size > 0 && (
+          <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-white border border-slate-200 rounded-lg">
+            <span className="text-sm font-semibold text-slate-700">{selected.size} selected</span>
+            <button
+              onClick={handleDeleteSelected}
+              disabled={isDeleting}
+              className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
+            >
+              <Trash2 size={14} />
+              {isDeleting ? 'Deleting...' : 'Delete selected'}
+            </button>
+          </div>
+        )}
+
         {/* Leads Table */}
-        <div className="bg-white rounded-[40px] shadow-sm border overflow-hidden">
+        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
           <table className="w-full text-left">
-            <thead className="bg-slate-50/50 border-b text-[10px] uppercase font-black text-slate-400">
+            <thead className="border-b border-slate-100 text-xs font-semibold text-slate-400 uppercase tracking-wider">
               <tr>
-                <th className="p-6">Lead Details</th>
-                <th className="p-6">Email Address</th>
-                <th className="p-6">Course Interests</th>
-                <th className="p-6">Status</th>
+                <th className="px-4 py-3 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allFilteredSelected}
+                    onChange={toggleSelectAll}
+                    className="rounded border-slate-300 cursor-pointer"
+                  />
+                </th>
+                <th className="px-4 py-3">Name & Title</th>
+                <th className="px-4 py-3">Company</th>
+                <th className="px-4 py-3">Email</th>
+                <th className="px-4 py-3">Courses</th>
+                <th className="px-4 py-3">Status</th>
               </tr>
             </thead>
-            <tbody className="divide-y text-sm">
+            <tbody className="divide-y divide-slate-50 text-sm">
               {filteredLeads.map((l, idx) => (
-                <tr key={`${l.email}-${idx}`} className="hover:bg-slate-50/50 transition-colors">
-                  <td className="p-6">
-                    <div className="font-black text-slate-900">{l.name || '—'}</div>
-                    <div className="text-[10px] font-bold text-slate-400 uppercase leading-tight">
-                      {[l.job_title, l.company].filter(Boolean).join(' @ ') || '—'}
-                    </div>
+                <tr
+                  key={`${l.email}-${idx}`}
+                  className={`hover:bg-slate-50 transition-colors ${selected.has(l.email) ? 'bg-slate-50' : ''}`}
+                >
+                  <td className="px-4 py-3">
+                    <input
+                      type="checkbox"
+                      checked={selected.has(l.email)}
+                      onChange={() => toggleSelectOne(l.email)}
+                      className="rounded border-slate-300 cursor-pointer"
+                    />
                   </td>
-                  <td className="p-6 font-mono text-[11px] text-slate-400">{l.email}</td>
-                  <td className="p-6">
+                  <td className="px-4 py-3">
+                    <div className="font-semibold text-slate-800">{l.name || '—'}</div>
+                    <div className="text-xs text-slate-400 mt-0.5">{l.job_title || '—'}</div>
+                  </td>
+                  <td className="px-4 py-3 text-slate-600">{l.company || '—'}</td>
+                  <td className="px-4 py-3 font-mono text-xs text-slate-400">{l.email}</td>
+                  <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-1">
                       {l.program.split(/,\s*/).filter(Boolean).map(p => (
                         <span
                           key={p}
-                          className="px-2 py-0.5 bg-blue-50 text-blue-600 rounded text-[9px] font-black border border-blue-100 uppercase"
+                          className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-[10px] font-semibold uppercase"
                         >
                           {p.trim()}
                         </span>
                       ))}
                     </div>
                   </td>
-                  <td className="p-6">
+                  <td className="px-4 py-3">
                     <button
                       onClick={() => toggleStatus(l.email, l.status)}
-                      className={`px-4 py-1.5 rounded-lg font-black text-[9px] uppercase border transition-all hover:opacity-80 ${
+                      className={`px-3 py-1 rounded-md font-semibold text-xs border transition-colors hover:opacity-80 ${
                         STATUS_STYLE[l.status] || STATUS_STYLE['New']
                       }`}
                       title="Click to advance status"
@@ -301,7 +372,7 @@ const App = () => {
               ))}
               {filteredLeads.length === 0 && (
                 <tr>
-                  <td colSpan={4} className="p-20 text-center text-slate-300 font-bold uppercase tracking-widest">
+                  <td colSpan={6} className="p-16 text-center text-slate-300 text-sm font-medium">
                     {leads.length === 0
                       ? 'No leads yet. Import your Excel data to get started.'
                       : 'No leads match your current filters.'}
@@ -312,8 +383,7 @@ const App = () => {
           </table>
         </div>
 
-        {/* Footer */}
-        <p className="mt-6 text-center text-[10px] text-slate-300 font-bold uppercase tracking-widest">
+        <p className="mt-4 text-center text-xs text-slate-300">
           Showing {filteredLeads.length} of {leads.length} leads
         </p>
 
