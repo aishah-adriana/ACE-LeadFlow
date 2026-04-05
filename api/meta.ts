@@ -7,16 +7,24 @@ const kv = createClient({
 });
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  if (req.method === 'PATCH') {
-    const { email, status } = req.body;
+  if (req.method === 'GET') {
     try {
-      const lead = await kv.get<any>(`lead:${email.toLowerCase()}`);
-      if (!lead) return res.status(404).json({ error: 'Lead not found' });
-      await kv.set(`lead:${email.toLowerCase()}`, { ...lead, status });
+      const last_imported = await kv.get<string>('meta:last_imported');
+      return res.status(200).json({ last_imported: last_imported || null });
+    } catch {
+      return res.status(200).json({ last_imported: null });
+    }
+  }
+
+  if (req.method === 'POST') {
+    try {
+      const { last_imported } = req.body;
+      await kv.set('meta:last_imported', last_imported);
       return res.status(200).json({ success: true });
     } catch (error: any) {
       return res.status(500).json({ error: error.message });
     }
   }
-  return res.status(405).json({ message: 'Method not allowed' });
+
+  return res.status(405).end();
 }

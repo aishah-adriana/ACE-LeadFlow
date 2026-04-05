@@ -112,7 +112,7 @@ function main(workbook: ExcelScript.Workbook) {
       // Build name from first + last, falling back gracefully
       const firstName = String(row[COL_FIRST_NAME] ?? '').trim();
       const lastName  = String(row[COL_LAST_NAME]  ?? '').trim();
-      const name = [firstName, lastName].filter(Boolean).join(' ') || email;
+      const name = [firstName, lastName].filter(s => s.length > 0).join(' ') || email;
 
       const phone    = String(row[COL_PHONE]     ?? '').trim();
       const jobTitle = String(row[COL_JOB_TITLE] ?? '').trim();
