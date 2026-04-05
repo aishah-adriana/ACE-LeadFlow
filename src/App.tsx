@@ -43,6 +43,7 @@ const App = () => {
   const [lastImported, setLastImported] = useState<string | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [isDeleting, setIsDeleting] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
 
   const fetchLeads = async () => {
     try {
@@ -115,7 +116,6 @@ const App = () => {
 
   const handleDeleteSelected = async () => {
     if (selected.size === 0) return;
-    if (!confirm(`Delete ${selected.size} lead${selected.size > 1 ? 's' : ''}? This cannot be undone.`)) return;
     setIsDeleting(true);
     try {
       const res = await fetch('/api/leads', {
@@ -131,6 +131,7 @@ const App = () => {
       console.error('Delete error:', err);
     } finally {
       setIsDeleting(false);
+      setShowDeleteModal(false);
     }
   };
 
@@ -295,12 +296,12 @@ const App = () => {
           <div className="mb-3 flex items-center gap-3 px-4 py-2.5 bg-white border border-slate-200 rounded-lg">
             <span className="text-sm font-semibold text-slate-700">{selected.size} selected</span>
             <button
-              onClick={handleDeleteSelected}
+              onClick={() => setShowDeleteModal(true)}
               disabled={isDeleting}
               className="flex items-center gap-1.5 text-sm font-semibold text-red-600 hover:text-red-700 disabled:opacity-50"
             >
               <Trash2 size={14} />
-              {isDeleting ? 'Deleting...' : 'Delete selected'}
+              Delete selected
             </button>
           </div>
         )}
@@ -388,6 +389,39 @@ const App = () => {
         </p>
 
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {showDeleteModal && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xl p-6 w-full max-w-sm mx-4">
+            <div className="flex items-center gap-3 mb-4">
+              <div className="bg-red-50 p-2 rounded-lg">
+                <Trash2 size={18} className="text-red-600" />
+              </div>
+              <h2 className="font-bold text-slate-800">Delete {selected.size} lead{selected.size > 1 ? 's' : ''}?</h2>
+            </div>
+            <p className="text-sm text-slate-500 mb-6">
+              This will permanently remove {selected.size === 1 ? 'this lead' : `these ${selected.size} leads`} from the dashboard. This action cannot be undone.
+            </p>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => setShowDeleteModal(false)}
+                className="px-4 py-2 text-sm font-semibold text-slate-500 hover:text-slate-700"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleDeleteSelected}
+                disabled={isDeleting}
+                className="px-4 py-2 bg-red-600 text-white text-sm font-semibold rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
+              >
+                {isDeleting ? 'Deleting...' : 'Yes, delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 };
